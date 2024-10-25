@@ -1,8 +1,8 @@
 #include <WiFi.h>
-#include <ESPmDNS.h>
+//#include <ESPmDNS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Adafruit_Keypad.h>
+#include <Keypad.h>
 #include "credentials.h"
   //credentials.h
   //#ifndef CREDENTIALS_H
@@ -47,12 +47,12 @@ byte ROW_PINS[] = {20, 10, 0};  // CHANGE according to connections
 byte COL_PINS[] = {7, 8, 1};    // CHANGE according to connections
 
 // Declaring the button actions in a 2D array
-const char* keys[ROWS][COLS] = {
-  {"U",  "R", "A"},   // Row 0: ↑, →, A
-  {"L",  "S", "B"},  // Row 1: ←, Select, B
-  {"D",  nullptr, nullptr}  // Row 2: ↓,
+const char keys[ROWS][COLS] = {
+  {'U',  'L', 'D'},   // Row 0: ↑, →, A
+  {'R',  'S', '0'},  // Row 1: ←, Select, B
+  {'A',  'B', '1'}  // Row 2: ↓,
 };
-Adafruit_Keypad keypad = Adafruit_Keypad(makeKeymap(keys), ROW_PINS, COL_PINS, ROWS, COLS);
+Keypad keypad = Keypad(makeKeymap(keys), ROW_PINS, COL_PINS, ROWS, COLS);
 
 WiFiServer server(8080);
 bool ServerMode = false;
@@ -74,27 +74,19 @@ void ModeSelection() {
   DisplayMessage("HOST: Up\nJOIN: Down");
   
   while (true) {  // Keep looping until a mode is selected
-    keypad.tick();  // Update the keypad state
-
-    // Check for available key events
-    while (keypad.available()) {
-      keypadEvent e = keypad.read();
-      if (e.bit.EVENT == KEY_JUST_PRESSED) {
-        Serial.println(e.bit.KEY);
-        if (e.bit.KEY == 'U') {  // Host (Server) Mode selected
-          ServerMode = true;
-          DisplayMessage("HOST");
-          delay(1000);  // Display confirmation
-          return;  // Exit mode selection loop
-        } else if (e.bit.KEY == 'D') {  // Join (Client) Mode selected
-          ServerMode = false;
-          DisplayMessage("JOIN");
-          delay(1000);  // Display confirmation
-          return;  // Exit mode selection loop
-        }
-        else{
-          Serial.println(e.bit.KEY);
-        }
+    char input = keypad.getKey();
+    if (input){
+      Serial.println(input);
+      if(input == 'U'){
+        ServerMode = true;
+        DisplayMessage("HOST");
+        delay(500);
+        return;
+      } else if(input == 'D'){
+        ServerMode = false;
+        DisplayMessage("JOIN");
+        delay(500);
+        return;
       }
     }
   }
@@ -103,10 +95,9 @@ void ModeSelection() {
 void setup() {
   Serial.begin(115200);
   DisplaySetup();
-  keypad.begin();
 
   ModeSelection();
-  display.clearDisplay();
+  DisplayMessage(" ");
 
   WiFiSetup();
 }
