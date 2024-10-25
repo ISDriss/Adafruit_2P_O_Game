@@ -1,5 +1,5 @@
 #include <WiFi.h>
-//#include <ESPmDNS.h>
+#include <ESPmDNS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Keypad.h>
@@ -55,21 +55,9 @@ const char keys[ROWS][COLS] = {
 Keypad keypad = Keypad(makeKeymap(keys), ROW_PINS, COL_PINS, ROWS, COLS);
 
 WiFiServer server(8080);
+WiFiClient client;
 bool ServerMode = false;
 
-void WiFiSetup() {
-  WiFi.begin(ssid,password);
-  Serial.print("Connecting to Wifi");
-  while(WiFi.status() != WL_CONNECTED){
-    delay(1000);
-    Serial.print(".");
-  }
-  Serial.println("Connected to Wifi");
-  Serial.print("At IP:");
-  Serial.println(WiFi.localIP());
-}
-
-// Function to handle mode selection
 void ModeSelection() {
   DisplayMessage("HOST: Up\nJOIN: Down");
   
@@ -92,16 +80,96 @@ void ModeSelection() {
   }
 }
 
+void WiFiSetup() {
+  WiFi.begin(ssid,password);
+  Serial.print("Connecting to Wifi");
+  while(WiFi.status() != WL_CONNECTED){
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println("Connected to Wifi");
+  Serial.print("At IP:");
+  Serial.println(WiFi.localIP());
+}
+
+IPAddress MDNSSetup() {
+  if(ServerMode){
+    // Start mDNS
+    if (!MDNS.begin("esp32server")) {  // Register the device as "esp32server.local"
+      Serial.println("Error setting up MDNS responder!");
+    } else {
+      Serial.println("mDNS responder started");
+    }
+    // Start server
+    server.begin();
+    return IPAddress();
+
+  } else{
+    // Use mDNS to find the server
+    if (!MDNS.begin("esp32client")) {
+      Serial.println("Error starting mDNS on client");
+    }
+    // Resolve server's mDNS hostname to IP
+    Serial.println("Resolving server...");
+    IPAddress serverIP = MDNS.queryHost("esp32server");
+    return serverIP;
+  }
+}
+
+void ServerLoop() {
+  client = server.available();  // Check if a client has connected
+  
+  if (client) {
+    Serial.println("Client connected.");
+    String message = client.readStringUntil('\n');  // Read the message sent from the client
+    Serial.println("Received message: " + message);
+
+    // Send a response
+    client.println("Hello from Server!");
+    
+    client.stop();  // Close the connection
+  }
+}
+
+void ClientSetup(IPAddress serverIP) {
+  if (serverIP) {
+    Serial.print("Server found at: ");
+    Serial.println(serverIP);
+    
+    WiFiClient client;
+    if (client.connect(serverIP, 80)) {
+      Serial.println("Connected to server.");
+
+      // Send a message to the server
+      client.println("Hello from Client!");
+
+      // Wait for a response
+      String response = client.readStringUntil('\n');
+      Serial.println("Server response: " + response);
+      
+      client.stop();  // Close the connection
+    }
+  } else {
+    Serial.println("Server not found.");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   DisplaySetup();
-
   ModeSelection();
   DisplayMessage(" ");
-
   WiFiSetup();
+
+
+  IPAddress SIP = MDNSSetup();
+  if(!ServerMode and SIP != IPAddress()){
+    ClientSetup(SIP);
+  }
 }
 
 void loop() {
-
+  if(ServerMode){
+    ServerLoop();
+  }
 }
