@@ -57,6 +57,7 @@ Keypad keypad = Keypad(makeKeymap(keys), ROW_PINS, COL_PINS, ROWS, COLS);
 WiFiServer server(8080);
 WiFiClient client;
 bool ServerMode = false;
+bool connected = false;
 
 void ModeSelection() {
   DisplayMessage("HOST: Up\nJOIN: Down");
@@ -116,6 +117,38 @@ IPAddress MDNSSetup() {
   }
 }
 
+void ComsSetup(IPAddress serverIP){
+  if(ServerMode){
+    client = server.available();
+    if (client) {
+      Serial.println("Client connected.");
+      
+      String message = client.readStringUntil('\n');  // Read the message sent from the client
+      Serial.println("Received message: " + message);
+      // Send a response
+      client.println("Hello from Server!");
+    }
+  } else{
+    if(!ServerMode && serverIP != IPAddress()) {
+      Serial.print("Server found at: ");
+      Serial.println(serverIP);
+    
+      if (client.connect(serverIP, 8080)) {
+        Serial.println("Connected to server.");
+
+        // Send a message to the server
+        client.println("Hello From Client");
+
+        // Wait for a response
+        String response = client.readStringUntil('\n');
+        Serial.println("Server response: " + response);
+      }
+    } else {
+    Serial.println("Server not found.");
+    }
+  }
+}
+
 void ServerLoop() {
   client = server.available();  // Check if a client has connected
   
@@ -136,40 +169,185 @@ void ClientSetup(IPAddress serverIP) {
     Serial.print("Server found at: ");
     Serial.println(serverIP);
     
-    WiFiClient client;
     if (client.connect(serverIP, 8080)) {
       Serial.println("Connected to server.");
 
       // Send a message to the server
-      client.println("Hello from Client!");
+      client.println("Hello from Client");
 
       // Wait for a response
       String response = client.readStringUntil('\n');
       Serial.println("Server response: " + response);
-      
-      client.stop();  // Close the connection
     }
   } else {
     Serial.println("Server not found.");
   }
 }
 
+//Variables de Jeux
+bool play = false;
+bool solo = false;
+bool have_ball = false;
+
+int ball[2] = {10, 25};
+int ballspeed[2] = {1, 1};
+int data[3] = {0, 0, 0}; //Ball[0], ballspeed[0], ballspeed[1]
+
+int paddleX = 56;
+bool Leftpressed = false;
+bool Rightpressed = false;
+
+
+// Function to convert integer array to comma-separated string
+String data_tostring(int data[3]) {
+  return String(data[0]) + "," + String(data[1]) + "," + String(data[2]);
+}
+
+// Function to convert a comma-separated string to an integer array
+void string_todata(const String& str) {
+  int start = 0;  // Start index for each number in the string
+  int index = 0;  // Index for each element in the data array
+
+  for (int i = 0; i < str.length(); i++) {
+    if (str[i] == ',' || i == str.length() - 1) {  // Check for comma or end of string
+      if (i == str.length() - 1) i++;  // Include last character in the substring
+      String numStr = str.substring(start, i);
+      data[index] = numStr.toInt();  // Convert substring to integer
+      index++;
+      start = i + 1;  // Move start index to character after comma
+    }
+  }
+}
+
+void Getkeyboard(){
+  char input = keypad.getKey();
+  Serial.println(input);
+  if(keypad.isPressed('B')){
+    Leftpressed = true;
+    Rightpressed = false;
+  } else if(keypad.isPressed('A')){
+    Rightpressed = true;
+    Leftpressed = false;
+  } else if(!keypad.isPressed('B') && !keypad.isPressed('A')){
+    Leftpressed = false;
+    Rightpressed = false;
+  }
+}
+
+void DisplayGame(){
+  display.clearDisplay();
+  //ball
+  if(have_ball) {
+    display.fillRect(ball[0], ball[1], 2, 2, SSD1306_WHITE);
+  }
+  //paddle
+  display.fillRect(paddleX, SCREEN_HEIGHT - 2, 10, 2, SSD1306_WHITE);
+  display.display();
+}
+
+void UpdateGame(){
+  //player paddle position
+  if(Leftpressed){
+    paddleX -=3;
+  }
+  if(Rightpressed){
+    paddleX +=3;
+  }
+  if (paddleX < 0) paddleX = 0;
+  if (paddleX > SCREEN_WIDTH - 10) paddleX = SCREEN_WIDTH - 10;
+
+  if(have_ball){
+    //ball position
+    ball[0] += ballspeed[0];
+    ball[1] += ballspeed[1];
+
+    //ball colide border walls
+    if(ball[0] <= 0 || ball[0] >= SCREEN_WIDTH){
+      ballspeed[0] *= -1;
+    }
+
+    //ball colide player paddle
+    if (ball[1] >= SCREEN_HEIGHT - 2 && ball[0] >= paddleX && ball[0] <= paddleX + 10) {
+      ballspeed[1] *= -1;
+    }
+
+    //lost the game
+    if(ball[1] >= SCREEN_HEIGHT){
+      play = false;
+      DisplayMessage("DEFEAT ;(");
+      delay(2000);
+    }
+
+    //ball to the other player
+    if (ball[1] <= 0){
+      have_ball = false;
+      ballspeed[1] *= -1;
+      data[0] = ball[0];
+      data[1] = ballspeed[0];
+      data[2] = ballspeed[1];
+      client.println(data_tostring(data));
+    }
+  
+  } else{
+    String response = client.readStringUntil('\n');
+    Serial.println("Server response: " + response);
+    string_todata(response);
+    ball[1] = 0;
+    ball[0] = data[0];
+    ballspeed[0] = data[1];
+    ballspeed[1] = data[2];
+
+    have_ball = true;
+  }
+
+}
+
 void setup() {
+  //base Setup
   Serial.begin(115200);
   DisplaySetup();
   ModeSelection();
   DisplayMessage(" ");
   WiFiSetup();
 
-
+  //Card connection
   IPAddress SIP = MDNSSetup();
-  if(!ServerMode and SIP != IPAddress()){
-    ClientSetup(SIP);
-  }
+  ComsSetup(SIP);
 }
 
 void loop() {
-  if(ServerMode){
-    ServerLoop();
+
+  //Pong
+  play = true;
+  DisplayMessage("Waiting for other player");
+  while(!connected){
+    if(ServerMode){
+      client = server.available();
+      if(client){
+        connected = true;
+      }
+    } else{
+      if(client.connected()){
+        connected = true;
+      }
+    }
+  }
+
+  while(connected && play){
+    DisplayMessage("Game Starting");
+    ball[0] = 10;
+    ball[1] = 25;
+    paddleX = 56;
+    delay(1000);
+
+    if(ServerMode)
+    { have_ball = true;} 
+    else{ have_ball = false;}
+    while(play && connected){
+      Getkeyboard();
+      UpdateGame();
+      DisplayGame();
+      delay(45);
+    }
   }
 }
