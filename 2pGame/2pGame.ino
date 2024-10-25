@@ -137,7 +137,7 @@ void ClientSetup(IPAddress serverIP) {
     Serial.println(serverIP);
     
     WiFiClient client;
-    if (client.connect(serverIP, 80)) {
+    if (client.connect(serverIP, 8080)) {
       Serial.println("Connected to server.");
 
       // Send a message to the server
